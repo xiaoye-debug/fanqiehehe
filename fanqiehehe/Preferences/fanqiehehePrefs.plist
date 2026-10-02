@@ -1,0 +1,13 @@
+{
+    Filter = {
+        Bundles = (
+            "com.apple.Preferences"
+        );
+    };
+    CFBundleDisplayName = "fanqiehehe";
+    CFBundleIdentifier = "com.iosrxwy.fanqiehehe.preferences";
+    CFBundlePackageType = BNDL;
+    CFBundleShortVersionString = "0.1";
+    CFBundleVersion = "0.1";
+    NSPrincipalClass = "FQHRootListController";
+}
