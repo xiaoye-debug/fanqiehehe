@@ -1,0 +1,123 @@
+name: Hook Build
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - '*.x'
+      - '*.xm'
+      - '*.m'
+      - '*.mm'
+      - '*.h'
+      - 'Makefile'
+      - 'control'
+      - '*.plist'
+      - 'layout/**'
+      - '.github/workflows/hook-build.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          submodules: true
+          fetch-depth: 0
+
+      - name: Prepare Theos
+        uses: huami1314/theos-action@main
+
+      - name: Setup GNU Make
+        run: |
+          echo "$(brew --prefix)/opt/make/libexec/gnubin" >> "$GITHUB_PATH"
+
+      - name: Clean packages
+        run: rm -rf packages && mkdir -p packages
+
+      - name: Build Rootless
+        run: |
+          make clean
+          make package SCHEME=rootless FINALPACKAGE=1 -j$(sysctl -n hw.ncpu)
+          for f in packages/*.deb; do
+            [ -f "$f" ] && [[ "$f" != *"-rootful.deb" && "$f" != *"-rootless.deb" && "$f" != *"-roothide.deb" ]] && mv "$f" "${f%.deb}-rootless.deb"
+          done
+
+      - name: Build Rootful
+        run: |
+          make clean
+          make package SCHEME=rootful FINALPACKAGE=1 -j$(sysctl -n hw.ncpu)
+          for f in packages/*.deb; do
+            [ -f "$f" ] && [[ "$f" != *"-rootful.deb" && "$f" != *"-rootless.deb" && "$f" != *"-roothide.deb" ]] && mv "$f" "${f%.deb}-rootful.deb"
+          done
+
+      - name: Build Roothide
+        run: |
+          make clean
+          make package SCHEME=roothide FINALPACKAGE=1 -j$(sysctl -n hw.ncpu)
+          for f in packages/*.deb; do
+            [ -f "$f" ] && [[ "$f" != *"-rootful.deb" && "$f" != *"-rootless.deb" && "$f" != *"-roothide.deb" ]] && mv "$f" "${f%.deb}-roothide.deb"
+          done
+
+      - name: Extract Hook dylib
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          mkdir -p packages/hook
+          deb_files=(packages/*-rootless.deb)
+          if [ "${#deb_files[@]}" -ne 1 ]; then
+            echo "Expected exactly one rootless deb, found ${#deb_files[@]}" >&2
+            exit 1
+          fi
+
+          work_dir=$(mktemp -d)
+          trap 'rm -rf "$work_dir"' EXIT
+          mkdir -p "$work_dir/data"
+          cd "$work_dir"
+          ar -x "$GITHUB_WORKSPACE/${deb_files[0]}"
+          data_archives=(data.tar.*)
+          if [ "${#data_archives[@]}" -ne 1 ]; then
+            echo "Expected one data archive" >&2
+            exit 1
+          fi
+          tar -xf "${data_archives[0]}" -C data
+
+          found=()
+          while IFS= read -r -d '' file; do
+            found+=("$file")
+          done < <(find data -type f -name '*.dylib' -print0)
+
+          if [ "${#found[@]}" -ne 1 ]; then
+            echo "Expected exactly one dylib, found ${#found[@]}" >&2
+            exit 1
+          fi
+
+          cp "${found[0]}" "$GITHUB_WORKSPACE/packages/hook/fanqiehehe.dylib"
+          lipo -info "$GITHUB_WORKSPACE/packages/hook/fanqiehehe.dylib"
+
+      - name: Verify artifacts
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          debs=(packages/*.deb)
+          dylibs=(packages/hook/*.dylib)
+          [ "${#debs[@]}" -eq 3 ] || { echo "Expected 3 deb packages" >&2; exit 1; }
+          [ "${#dylibs[@]}" -eq 1 ] || { echo "Expected 1 hook dylib" >&2; exit 1; }
+          printf 'Build artifacts:\n'
+          printf '  %s\n' "${debs[@]}"
+          printf '  %s\n' "${dylibs[@]}"
+
+      - name: Upload Hook Build
+        uses: actions/upload-artifact@v7
+        with:
+          name: fanqiehehe-Hook-Build-${{ github.run_number }}
+          path: |
+            packages/*.deb
+            packages/hook/*.dylib
+          if-no-files-found: error
