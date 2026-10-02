@@ -52,3 +52,43 @@
     return view;
 }
 %end
+
+
+// ===== Bundle ID 测试重写 =====
+// 仅使用本插件自有的测试 Bundle ID，不用于第三方服务认证或登录绕过。
+static NSString * const kFQHTestBundleIdentifier = @"com.xiaoye-debug.fanqiehehe.test";
+static NSString * const kFQHBundleIDSwitchKey = @"fanqieheheEnableBundleIDTestRewrite";
+
+static BOOL FQHBundleIDTestRewriteEnabled(void) {
+    return [[NSUserDefaults standardUserDefaults] boolForKey:kFQHBundleIDSwitchKey];
+}
+
+%hook NSBundle
+
+- (NSString *)bundleIdentifier {
+    NSString *original = %orig;
+
+    // 只处理主 Bundle，并且只在用户开启测试开关时生效。
+    // 测试值固定为本插件自有的测试 ID。
+    if (FQHBundleIDTestRewriteEnabled() &&
+        self == [NSBundle mainBundle] &&
+        original.length > 0) {
+        return kFQHTestBundleIdentifier;
+    }
+
+    return original;
+}
+
+- (id)objectForInfoDictionaryKey:(NSString *)key {
+    id value = %orig;
+
+    if (FQHBundleIDTestRewriteEnabled() &&
+        self == [NSBundle mainBundle] &&
+        [key isEqualToString:@"CFBundleIdentifier"]) {
+        return kFQHTestBundleIdentifier;
+    }
+
+    return value;
+}
+
+%end
